@@ -27,7 +27,7 @@ ec (easy-conflict) is a 3-way terminal native Git merge conflict resolver. Suppo
 ### Homebrew
 
 ```
-brew install chojs23/tap/ec
+brew install ec
 ```
 
 ### Npm
