@@ -66,18 +66,11 @@ type keyHelpEntry struct {
 type keyAction func(*model) (tea.Cmd, error)
 
 var resolverKeyHelp = []keyHelpEntry{
-	{key: "n", description: "next"},
-	{key: "p", description: "prev"},
-	{key: "gg/G", description: "top/bottom"},
-	{key: "zz", description: "recenter hunk"},
-	{key: "j/k/up/down", description: "scroll"},
-	{key: "ctrl+u/ctrl+d", description: "half-page"},
-	{key: "H/L/left/right", description: "scroll"},
-	{key: "h", description: "ours"},
-	{key: "l", description: "theirs"},
+	{key: "n/p", description: "next/prev"},
+	{key: "h/l", description: "ours/theirs"},
 	{key: "a/<space>", description: "accept"},
-	{key: "o/O", description: "ours/ours all"},
-	{key: "t/T", description: "theirs/theirs all"},
+	{key: "o/t", description: "ours/theirs"},
+	{key: "O/T", description: "ours all/theirs all"},
 	{key: "b", description: "both"},
 	{key: "x", description: "none"},
 	{key: "d", description: "discard"},
@@ -588,17 +581,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		contentHeight := m.resolverViewportHeight()
+		paneWidth := (m.width - 12) / 3 // 3 panes with borders
+
 		if !m.ready {
-			m.width = msg.Width
-			m.height = msg.Height
-
-			// Calculate pane dimensions
-			headerHeight := 2
-			footerHeight := 3
-			contentHeight := m.height - headerHeight - footerHeight - 6 // borders + padding
-
-			paneWidth := (m.width - 12) / 3 // 3 panes with borders
-
 			m.viewportOurs = viewport.New(paneWidth, contentHeight)
 			m.viewportResult = viewport.New(paneWidth, contentHeight)
 			m.viewportTheirs = viewport.New(paneWidth, contentHeight)
@@ -606,15 +594,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ready = true
 			m.updateViewports()
 		} else {
-			m.width = msg.Width
-			m.height = msg.Height
-
-			headerHeight := 2
-			footerHeight := 3
-			contentHeight := m.height - headerHeight - footerHeight - 6
-
-			paneWidth := (m.width - 12) / 3
-
 			m.viewportOurs.Width = paneWidth
 			m.viewportOurs.Height = contentHeight
 			m.viewportResult.Width = paneWidth
@@ -726,18 +705,8 @@ func (m model) View() string {
 
 	panes := lipgloss.JoinHorizontal(lipgloss.Top, oursPane, resultPane, theirsPane)
 
-	// Footer
-	undoInfo := ""
-	if m.undoDepth() > 0 {
-		undoInfo = fmt.Sprintf(" | Undo available: %d", m.undoDepth())
-	}
-	redoInfo := ""
-	if m.redoDepth() > 0 {
-		redoInfo = fmt.Sprintf(" | Redo available: %d", m.redoDepth())
-	}
-
 	footerText := footerStyle.Width(m.width).Render(
-		fmt.Sprintf("%s%s%s", resolverFooterKeyMapText(), undoInfo, redoInfo),
+		m.resolverFooterText(),
 	)
 	footer := lipgloss.JoinVertical(lipgloss.Left, footerText, m.renderToastLine())
 
@@ -750,6 +719,35 @@ func (m model) renderToastLine() string {
 		content = toastStyle.Render(m.toastMessage)
 	}
 	return toastLineStyle.Width(m.width).Render(content)
+}
+
+func (m model) resolverFooterText() string {
+	undoInfo := ""
+	if m.undoDepth() > 0 {
+		undoInfo = fmt.Sprintf(" | Undo available: %d", m.undoDepth())
+	}
+	redoInfo := ""
+	if m.redoDepth() > 0 {
+		redoInfo = fmt.Sprintf(" | Redo available: %d", m.redoDepth())
+	}
+	return fmt.Sprintf("%s%s%s", resolverFooterKeyMapText(), undoInfo, redoInfo)
+}
+
+func (m model) resolverViewportHeight() int {
+	const (
+		headerHeight    = 1
+		paneTitleHeight = 1
+		paneFrameHeight = 2
+	)
+
+	footerText := footerStyle.Width(m.width).Render(m.resolverFooterText())
+	footerHeight := lipgloss.Height(lipgloss.JoinVertical(lipgloss.Left, footerText, m.renderToastLine()))
+
+	height := m.height - headerHeight - footerHeight - paneTitleHeight - paneFrameHeight
+	if height < 1 {
+		return 1
+	}
+	return height
 }
 
 func resolverFooterKeyMapText() string {

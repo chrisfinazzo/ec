@@ -1096,6 +1096,28 @@ func TestModelViewReady(t *testing.T) {
 	}
 }
 
+func TestWindowSizeUsesAvailableHeight(t *testing.T) {
+	doc := parseSingleConflictDoc(t)
+	state, err := engine.NewState(doc)
+	if err != nil {
+		t.Fatalf("NewState error = %v", err)
+	}
+	m := model{
+		opts:            cliOptionsWithMergedPath("merged.txt"),
+		state:           state,
+		doc:             doc,
+		currentConflict: 0,
+		selectedSide:    selectedOurs,
+		manualResolved:  map[int][]byte{},
+	}
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 160, Height: 40})
+	resized := updated.(model)
+	if got := lipgloss.Height(resized.View()); got != 40 {
+		t.Fatalf("View height = %d, want 40", got)
+	}
+}
+
 func TestModelViewShowsBranchLabels(t *testing.T) {
 	doc := parseSingleConflictDoc(t)
 	state, err := engine.NewState(doc)
