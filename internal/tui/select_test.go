@@ -118,6 +118,75 @@ func TestFileSelectModelUpdateQuit(t *testing.T) {
 	}
 }
 
+func TestFileSelectModelUpdateNextUnresolved(t *testing.T) {
+	items := []list.Item{
+		fileItem{path: "a.txt", resolved: true},
+		fileItem{path: "b.txt", resolved: false},
+		fileItem{path: "c.txt", resolved: true},
+		fileItem{path: "d.txt", resolved: false},
+	}
+	model := fileSelectModel{list: list.New(items, fileItemDelegate{}, 0, 0)}
+	model.list.Select(0)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	result := updated.(fileSelectModel)
+	if result.list.Index() != 1 {
+		t.Fatalf("Index() = %d, want 1", result.list.Index())
+	}
+
+	updated, _ = result.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	result = updated.(fileSelectModel)
+	if result.list.Index() != 3 {
+		t.Fatalf("Index() = %d, want 3", result.list.Index())
+	}
+}
+
+func TestFileSelectModelUpdatePreviousUnresolved(t *testing.T) {
+	items := []list.Item{
+		fileItem{path: "a.txt", resolved: false},
+		fileItem{path: "b.txt", resolved: true},
+		fileItem{path: "c.txt", resolved: false},
+		fileItem{path: "d.txt", resolved: true},
+	}
+	model := fileSelectModel{list: list.New(items, fileItemDelegate{}, 0, 0)}
+	model.list.Select(3)
+
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	result := updated.(fileSelectModel)
+	if result.list.Index() != 2 {
+		t.Fatalf("Index() = %d, want 2", result.list.Index())
+	}
+
+	updated, _ = result.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	result = updated.(fileSelectModel)
+	if result.list.Index() != 0 {
+		t.Fatalf("Index() = %d, want 0", result.list.Index())
+	}
+}
+
+func TestFileSelectModelUpdateUnresolvedNavigationStopsAtBoundary(t *testing.T) {
+	items := []list.Item{
+		fileItem{path: "a.txt", resolved: false},
+		fileItem{path: "b.txt", resolved: true},
+		fileItem{path: "c.txt", resolved: false},
+	}
+
+	model := fileSelectModel{list: list.New(items, fileItemDelegate{}, 0, 0)}
+	model.list.Select(0)
+	updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	result := updated.(fileSelectModel)
+	if result.list.Index() != 0 {
+		t.Fatalf("Index() = %d, want 0", result.list.Index())
+	}
+
+	model.list.Select(2)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	result = updated.(fileSelectModel)
+	if result.list.Index() != 2 {
+		t.Fatalf("Index() = %d, want 2", result.list.Index())
+	}
+}
+
 func TestFileSelectModelWindowResize(t *testing.T) {
 	items := []list.Item{fileItem{path: "a.txt", resolved: false}}
 	model := fileSelectModel{list: list.New(items, fileItemDelegate{}, 0, 0)}
@@ -139,6 +208,9 @@ func TestFileSelectModelView(t *testing.T) {
 	if !strings.Contains(view, "up/down: move") {
 		t.Fatalf("view = %q, want help line", view)
 	}
+	if !strings.Contains(view, "n/p: unresolved") {
+		t.Fatalf("view = %q, want unresolved navigation help", view)
+	}
 }
 
 func TestFileSelectModelInitReturnsNil(t *testing.T) {
@@ -158,6 +230,55 @@ func TestSelectFileReturnsSelected(t *testing.T) {
 		}
 		if selected != "picked.txt" {
 			t.Fatalf("SelectFile = %q, want picked.txt", selected)
+		}
+	})
+}
+
+func TestSelectFileFocusesFirstUnresolved(t *testing.T) {
+	withSelectProgram(t, func(model tea.Model, ctx context.Context) programRunner {
+		selector, ok := model.(fileSelectModel)
+		if !ok {
+			t.Fatalf("model type = %T, want fileSelectModel", model)
+		}
+		if selector.list.Index() != 1 {
+			t.Fatalf("Index() = %d, want 1", selector.list.Index())
+		}
+		return stubProgram{model: fileSelectModel{selected: "b.txt"}}
+	}, func() {
+		selected, err := SelectFile(context.Background(), []FileCandidate{
+			{Path: "a.txt", Resolved: true},
+			{Path: "b.txt", Resolved: false},
+			{Path: "c.txt", Resolved: false},
+		})
+		if err != nil {
+			t.Fatalf("SelectFile error = %v", err)
+		}
+		if selected != "b.txt" {
+			t.Fatalf("SelectFile = %q, want b.txt", selected)
+		}
+	})
+}
+
+func TestSelectFileKeepsInitialFocusWhenAllResolved(t *testing.T) {
+	withSelectProgram(t, func(model tea.Model, ctx context.Context) programRunner {
+		selector, ok := model.(fileSelectModel)
+		if !ok {
+			t.Fatalf("model type = %T, want fileSelectModel", model)
+		}
+		if selector.list.Index() != 0 {
+			t.Fatalf("Index() = %d, want 0", selector.list.Index())
+		}
+		return stubProgram{model: fileSelectModel{selected: "a.txt"}}
+	}, func() {
+		selected, err := SelectFile(context.Background(), []FileCandidate{
+			{Path: "a.txt", Resolved: true},
+			{Path: "b.txt", Resolved: true},
+		})
+		if err != nil {
+			t.Fatalf("SelectFile error = %v", err)
+		}
+		if selected != "a.txt" {
+			t.Fatalf("SelectFile = %q, want a.txt", selected)
 		}
 	})
 }
