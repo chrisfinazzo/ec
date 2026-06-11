@@ -18,6 +18,11 @@ import (
 
 var errNoConflicts = errors.New("no conflicted files found")
 
+type skippedConflict struct {
+	path   string
+	reason string
+}
+
 func prepareInteractiveFromRepo(ctx context.Context, opts *cli.Options) (func(), error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -39,7 +44,17 @@ func prepareInteractiveFromRepo(ctx context.Context, opts *cli.Options) (func(),
 	if err != nil {
 		return nil, err
 	}
+	paths, stagesByPath, skipped, err := supportedConflictPaths(ctx, repoRoot, paths)
+	if err != nil {
+		return nil, err
+	}
+	for _, conflict := range skipped {
+		fmt.Fprintf(os.Stderr, "Warning: skipping unsupported conflict %q: %s.\n", conflict.path, conflict.reason)
+	}
 	if len(paths) == 0 {
+		if len(skipped) > 0 {
+			return nil, fmt.Errorf("no supported conflicted files found in the current directory; skipped %s", formatSkippedConflicts(skipped))
+		}
 		return nil, errNoConflicts
 	}
 
@@ -56,6 +71,7 @@ func prepareInteractiveFromRepo(ctx context.Context, opts *cli.Options) (func(),
 		return nil, fmt.Errorf("cannot access merged file %s: %w", selected, err)
 	}
 
+	stages := stagesByPath[selected]
 	localBytes, err := gitutil.ShowStage(ctx, repoRoot, 2, selected)
 	if err != nil {
 		return nil, fmt.Errorf("missing ours stage for %s: %w", selected, err)
@@ -65,12 +81,16 @@ func prepareInteractiveFromRepo(ctx context.Context, opts *cli.Options) (func(),
 		return nil, fmt.Errorf("missing theirs stage for %s: %w", selected, err)
 	}
 
-	baseBytes, err := gitutil.ShowStage(ctx, repoRoot, 1, selected)
 	allowMissingBase := false
-	if err != nil {
+	var baseBytes []byte
+	if _, ok := stages[1]; !ok {
 		allowMissingBase = true
-		baseBytes = nil
 		fmt.Fprintf(os.Stderr, "Warning: base stage missing for %s; continuing without base view.\n", selected)
+	} else {
+		baseBytes, err = gitutil.ShowStage(ctx, repoRoot, 1, selected)
+		if err != nil {
+			return nil, fmt.Errorf("read base stage for %s: %w", selected, err)
+		}
 	}
 
 	basePath, localPath, remotePath, cleanup, err := writeTempStages(baseBytes, localBytes, remoteBytes)
@@ -85,6 +105,54 @@ func prepareInteractiveFromRepo(ctx context.Context, opts *cli.Options) (func(),
 	opts.AllowMissingBase = allowMissingBase
 
 	return cleanup, nil
+}
+
+func supportedConflictPaths(ctx context.Context, repoRoot string, paths []string) ([]string, map[string]map[int]gitutil.StageInfo, []skippedConflict, error) {
+	supported := make([]string, 0, len(paths))
+	skipped := []skippedConflict{}
+	stagesByPath := map[string]map[int]gitutil.StageInfo{}
+
+	for _, path := range paths {
+		stages, err := gitutil.UnmergedStages(ctx, repoRoot, path)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if reason := unsupportedConflictReason(stages); reason != "" {
+			skipped = append(skipped, skippedConflict{path: path, reason: reason})
+			continue
+		}
+
+		supported = append(supported, path)
+		stagesByPath[path] = stages
+	}
+
+	return supported, stagesByPath, skipped, nil
+}
+
+func unsupportedConflictReason(stages map[int]gitutil.StageInfo) string {
+	if len(stages) == 0 {
+		return "no unmerged index stages were found"
+	}
+	for _, stage := range stages {
+		if stage.Mode == "160000" {
+			return "submodule conflicts are not supported"
+		}
+	}
+	if _, ok := stages[2]; !ok {
+		return "delete/modify conflicts are not supported because the ours stage is missing"
+	}
+	if _, ok := stages[3]; !ok {
+		return "delete/modify conflicts are not supported because the theirs stage is missing"
+	}
+	return ""
+}
+
+func formatSkippedConflicts(skipped []skippedConflict) string {
+	parts := make([]string, 0, len(skipped))
+	for _, conflict := range skipped {
+		parts = append(parts, fmt.Sprintf("%q (%s)", conflict.path, conflict.reason))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func selectPath(paths []string) (string, error) {

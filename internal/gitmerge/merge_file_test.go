@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -65,5 +66,20 @@ func TestMergeFileDiff3Conflict(t *testing.T) {
 	}
 	if !bytes.Contains(got, []byte("<<<<<<<")) || !bytes.Contains(got, []byte("=======")) || !bytes.Contains(got, []byte(">>>>>>>")) {
 		t.Fatalf("expected conflict markers in output")
+	}
+}
+
+func TestMergeFileDiff3MissingInputReturnsError(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found in PATH")
+	}
+
+	missing := filepath.Join(t.TempDir(), "missing.txt")
+	got, err := MergeFileDiff3(context.Background(), missing, missing, missing)
+	if err == nil {
+		t.Fatalf("expected missing input error, got nil with output %q", string(got))
+	}
+	if !strings.Contains(err.Error(), "Could not stat") {
+		t.Fatalf("expected git stderr in error, got %v", err)
 	}
 }

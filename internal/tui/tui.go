@@ -429,7 +429,7 @@ func shouldAllowMissingBaseFallback(ctx context.Context, opts cli.Options, valid
 		return missingStage
 	}
 
-	return true
+	return false
 }
 
 func isTrulyMissingBasePath(basePath string) bool {
@@ -478,18 +478,19 @@ func isTrulyMissingBaseStage(ctx context.Context, mergedPath string) (bool, bool
 	}
 	relPath = filepath.ToSlash(relPath)
 
-	if _, err := gitutil.ShowStage(ctx, repoRoot, 2, relPath); err != nil {
+	stages, err := gitutil.UnmergedStages(ctx, repoRoot, relPath)
+	if err != nil || len(stages) == 0 {
 		return false, false
 	}
-	if _, err := gitutil.ShowStage(ctx, repoRoot, 3, relPath); err != nil {
+	if _, ok := stages[2]; !ok {
+		return false, false
+	}
+	if _, ok := stages[3]; !ok {
 		return false, false
 	}
 
-	if _, err := gitutil.ShowStage(ctx, repoRoot, 1, relPath); err != nil {
-		return true, true
-	}
-
-	return false, true
+	_, hasBase := stages[1]
+	return !hasBase, true
 }
 
 func loadLines(path string) ([]string, error) {

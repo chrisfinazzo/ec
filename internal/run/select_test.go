@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/chojs23/ec/internal/cli"
+	"github.com/chojs23/ec/internal/gitutil"
 )
 
 func withStdin(t *testing.T, input string, fn func()) {
@@ -319,25 +320,26 @@ func TestPrepareInteractiveFromRepoPopulatesOptions(t *testing.T) {
 	runGit(t, repoDir, "config", "user.email", "test@example.com")
 	runGit(t, repoDir, "config", "user.name", "Test User")
 
-	conflictPath := filepath.Join(repoDir, "conflict.txt")
+	fileName := " conflict.txt"
+	conflictPath := filepath.Join(repoDir, fileName)
 	if err := os.WriteFile(conflictPath, []byte("base\n"), 0o644); err != nil {
 		t.Fatalf("write base: %v", err)
 	}
-	runGit(t, repoDir, "add", "conflict.txt")
+	runGit(t, repoDir, "add", fileName)
 	runGit(t, repoDir, "commit", "-m", "base")
 
 	runGit(t, repoDir, "checkout", "-b", "feature")
 	if err := os.WriteFile(conflictPath, []byte("theirs\n"), 0o644); err != nil {
 		t.Fatalf("write theirs: %v", err)
 	}
-	runGit(t, repoDir, "add", "conflict.txt")
+	runGit(t, repoDir, "add", fileName)
 	runGit(t, repoDir, "commit", "-m", "theirs")
 
 	runGit(t, repoDir, "checkout", "-")
 	if err := os.WriteFile(conflictPath, []byte("ours\n"), 0o644); err != nil {
 		t.Fatalf("write ours: %v", err)
 	}
-	runGit(t, repoDir, "add", "conflict.txt")
+	runGit(t, repoDir, "add", fileName)
 	runGit(t, repoDir, "commit", "-m", "ours")
 
 	mergeCmd := exec.Command("git", "merge", "feature")
@@ -380,6 +382,9 @@ func TestPrepareInteractiveFromRepoPopulatesOptions(t *testing.T) {
 	if opts.MergedPath == "" || opts.BasePath == "" || opts.LocalPath == "" || opts.RemotePath == "" {
 		t.Fatalf("expected options paths to be set")
 	}
+	if filepath.Base(opts.MergedPath) != fileName {
+		t.Fatalf("merged filename = %q, want %q", filepath.Base(opts.MergedPath), fileName)
+	}
 
 	baseBytes, err := os.ReadFile(opts.BasePath)
 	if err != nil {
@@ -401,6 +406,28 @@ func TestPrepareInteractiveFromRepoPopulatesOptions(t *testing.T) {
 	}
 	if string(remoteBytes) != "theirs\n" {
 		t.Fatalf("remote temp content = %q, want theirs", string(remoteBytes))
+	}
+}
+
+func TestUnsupportedConflictReason(t *testing.T) {
+	cases := []struct {
+		name   string
+		stages map[int]gitutil.StageInfo
+		want   string
+	}{
+		{name: "modify modify", stages: map[int]gitutil.StageInfo{1: {Mode: "100644"}, 2: {Mode: "100644"}, 3: {Mode: "100644"}}},
+		{name: "add add", stages: map[int]gitutil.StageInfo{2: {Mode: "100644"}, 3: {Mode: "100644"}}},
+		{name: "missing ours", stages: map[int]gitutil.StageInfo{1: {Mode: "100644"}, 3: {Mode: "100644"}}, want: "delete/modify conflicts are not supported because the ours stage is missing"},
+		{name: "missing theirs", stages: map[int]gitutil.StageInfo{1: {Mode: "100644"}, 2: {Mode: "100644"}}, want: "delete/modify conflicts are not supported because the theirs stage is missing"},
+		{name: "submodule", stages: map[int]gitutil.StageInfo{1: {Mode: "160000"}, 2: {Mode: "160000"}, 3: {Mode: "160000"}}, want: "submodule conflicts are not supported"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := unsupportedConflictReason(tc.stages); got != tc.want {
+				t.Fatalf("unsupportedConflictReason = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

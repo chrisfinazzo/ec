@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // MergeFileDiff3 runs git's canonical three-way merge and returns a diff3-style
 // merge view (with base sections in conflict blocks).
 //
-// Exit code 0 means clean merge. Any positive exit code indicates the number of
-// conflicts found (truncated to 127 if >127). Negative exit codes indicate errors.
+// Exit code 0 means clean merge. Exit codes 1 through 127 indicate the number
+// of conflicts found, truncated to 127. Other exits are command errors.
 func MergeFileDiff3(ctx context.Context, localPath, basePath, remotePath string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", "merge-file", "--diff3", "-p", localPath, basePath, remotePath)
 
@@ -28,12 +29,12 @@ func MergeFileDiff3(ctx context.Context, localPath, basePath, remotePath string)
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
 		code := ee.ExitCode()
-		if code > 0 {
+		if code >= 1 && code <= 127 {
 			return stdout.Bytes(), nil
 		}
 	}
 
-	msg := stderr.String()
+	msg := strings.TrimSpace(stderr.String())
 	if msg == "" {
 		msg = err.Error()
 	}

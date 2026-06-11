@@ -29,33 +29,42 @@ exit 1
 }
 
 func TestRepoRootFailure(t *testing.T) {
-	withFakeGit(t, "#!/bin/sh\nexit 1\n")
+	withFakeGit(t, "#!/bin/sh\necho 'fatal: not a git repository' 1>&2\nexit 1\n")
 
 	rootDir := t.TempDir()
-	if _, err := RepoRoot(context.Background(), rootDir); err == nil {
+	_, err := RepoRoot(context.Background(), rootDir)
+	if err == nil {
 		t.Fatalf("expected error")
 	}
+	if !strings.Contains(err.Error(), "fatal: not a git repository") {
+		t.Fatalf("expected stderr in error, got %v", err)
+	}
+
 }
 
 func TestListUnmergedFiles(t *testing.T) {
 	withFakeGit(t, `#!/bin/sh
-if [ "$1" = "diff" ] && [ "$2" = "--name-only" ] && [ "$3" = "--diff-filter=U" ]; then
-  echo "a.txt"
-  echo "dir/b.txt"
+last=""
+for arg do
+  last="$arg"
+done
+if [ "$1" = "diff" ] && [ "$2" = "--name-only" ] && [ "$3" = "-z" ] && [ "$4" = "--diff-filter=U" ] && [ "$last" = ":(literal)dir/[abc]*" ]; then
+  printf '%s\0' "dir/[abc]*/ leading.txt" "dir/[abc]*/b.txt"
   exit 0
 fi
+echo "unexpected args: $*" 1>&2
 exit 1
 `)
 
 	repoRoot := t.TempDir()
-	paths, err := ListUnmergedFiles(context.Background(), repoRoot, ".")
+	paths, err := ListUnmergedFiles(context.Background(), repoRoot, "dir/[abc]*")
 	if err != nil {
 		t.Fatalf("ListUnmergedFiles error: %v", err)
 	}
 	if len(paths) != 2 {
 		t.Fatalf("expected 2 paths, got %d", len(paths))
 	}
-	if paths[0] != "a.txt" || paths[1] != "dir/b.txt" {
+	if paths[0] != "dir/[abc]*/ leading.txt" || paths[1] != "dir/[abc]*/b.txt" {
 		t.Fatalf("unexpected paths: %v", paths)
 	}
 }
@@ -70,6 +79,27 @@ func TestListUnmergedFilesEmpty(t *testing.T) {
 	}
 	if len(paths) != 0 {
 		t.Fatalf("expected no paths, got %v", paths)
+	}
+}
+
+func TestUnmergedStages(t *testing.T) {
+	withFakeGit(t, `#!/bin/sh
+if [ "$1" = "ls-files" ] && [ "$2" = "-u" ] && [ "$3" = "-z" ]; then
+  printf '100644 abc 1\tfile.txt\0'
+  printf '100755 def 2\tfile.txt\0'
+  printf '120000 ghi 3\tfile.txt\0'
+  exit 0
+fi
+exit 1
+`)
+
+	repoRoot := t.TempDir()
+	stages, err := UnmergedStages(context.Background(), repoRoot, "file.txt")
+	if err != nil {
+		t.Fatalf("UnmergedStages error: %v", err)
+	}
+	if stages[1].Mode != "100644" || stages[2].Mode != "100755" || stages[3].Mode != "120000" {
+		t.Fatalf("unexpected stages: %#v", stages)
 	}
 }
 

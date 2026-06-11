@@ -1732,8 +1732,8 @@ func TestShouldAllowMissingBaseFallback(t *testing.T) {
 	}
 
 	errMissingBase := errors.New("conflict 0 is missing base chunk (base completeness requires exact base for all conflicts)")
-	if !shouldAllowMissingBaseFallback(context.Background(), cli.Options{BasePath: emptyPath}, errMissingBase) {
-		t.Fatalf("expected missing-base validation error with empty base file to allow fallback")
+	if shouldAllowMissingBaseFallback(context.Background(), cli.Options{BasePath: emptyPath}, errMissingBase) {
+		t.Fatalf("expected missing-base fallback to require git index stage confirmation")
 	}
 
 	nonEmptyPath := filepath.Join(t.TempDir(), "base.txt")
@@ -1797,6 +1797,15 @@ func TestIsTrulyMissingBaseStage_AddAddConflict(t *testing.T) {
 	}
 	if !missing {
 		t.Fatalf("expected add/add conflict to have missing base stage")
+	}
+
+	emptyBasePath := filepath.Join(repoDir, "empty-base.txt")
+	if err := os.WriteFile(emptyBasePath, nil, 0o644); err != nil {
+		t.Fatalf("WriteFile error = %v", err)
+	}
+	errMissingBase := errors.New("conflict 0 is missing base chunk (base completeness requires exact base for all conflicts)")
+	if !shouldAllowMissingBaseFallback(context.Background(), cli.Options{BasePath: emptyBasePath, MergedPath: filepath.Join(repoDir, "temp.txt")}, errMissingBase) {
+		t.Fatalf("expected confirmed missing base stage to allow fallback")
 	}
 }
 
