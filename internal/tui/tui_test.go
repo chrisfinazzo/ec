@@ -1905,6 +1905,47 @@ func newModelForDoc(t *testing.T, doc markers.Document) model {
 	}
 }
 
+func TestFirstUnresolvedConflict(t *testing.T) {
+	t.Run("skips resolved conflict", func(t *testing.T) {
+		doc := parseMultiConflictDoc(t)
+		setConflictResolution(t, &doc, 0, markers.ResolutionOurs)
+
+		if got := firstUnresolvedConflict(doc, nil); got != 1 {
+			t.Fatalf("firstUnresolvedConflict = %d, want 1", got)
+		}
+	})
+
+	t.Run("skips manual resolved conflict", func(t *testing.T) {
+		doc := parseMultiConflictDoc(t)
+		manualResolved := map[int][]byte{0: []byte("manual\n")}
+
+		if got := firstUnresolvedConflict(doc, manualResolved); got != 1 {
+			t.Fatalf("firstUnresolvedConflict = %d, want 1", got)
+		}
+	})
+
+	t.Run("keeps first conflict when all are resolved", func(t *testing.T) {
+		doc := parseMultiConflictDoc(t)
+		setConflictResolution(t, &doc, 0, markers.ResolutionOurs)
+		setConflictResolution(t, &doc, 1, markers.ResolutionTheirs)
+
+		if got := firstUnresolvedConflict(doc, nil); got != 0 {
+			t.Fatalf("firstUnresolvedConflict = %d, want 0", got)
+		}
+	})
+}
+
+func setConflictResolution(t *testing.T, doc *markers.Document, index int, resolution markers.Resolution) {
+	t.Helper()
+	ref := doc.Conflicts[index]
+	seg, ok := doc.Segments[ref.SegmentIndex].(markers.ConflictSegment)
+	if !ok {
+		t.Fatalf("segment %d = %T, want ConflictSegment", ref.SegmentIndex, doc.Segments[ref.SegmentIndex])
+	}
+	seg.Resolution = resolution
+	doc.Segments[ref.SegmentIndex] = seg
+}
+
 func conflictResolution(t *testing.T, doc markers.Document, index int) markers.Resolution {
 	t.Helper()
 	ref := doc.Conflicts[index]

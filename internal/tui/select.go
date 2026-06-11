@@ -86,6 +86,11 @@ type fileSelectModel struct {
 
 var ErrSelectorQuit = fmt.Errorf("selector quit")
 
+const (
+	keyNextUnresolvedFile = keyNextConflict
+	keyPrevUnresolvedFile = keyPrevConflict
+)
+
 // SelectFile opens a TUI selector and returns the chosen repo-relative path.
 func SelectFile(ctx context.Context, candidates []FileCandidate) (string, error) {
 	if err := ensureThemeLoaded(); err != nil {
@@ -97,6 +102,7 @@ func SelectFile(ctx context.Context, candidates []FileCandidate) (string, error)
 	}
 
 	model := fileSelectModel{list: list.New(items, fileItemDelegate{}, 0, 0)}
+	selectFirstUnresolvedFile(&model.list)
 	model.list.Title = "Select conflicted file"
 	model.list.SetShowHelp(false)
 	model.list.SetShowStatusBar(false)
@@ -138,6 +144,12 @@ func (m fileSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected = item.path
 				return m, tea.Quit
 			}
+		case keyNextUnresolvedFile:
+			selectAdjacentUnresolvedFile(&m.list, 1)
+			return m, nil
+		case keyPrevUnresolvedFile:
+			selectAdjacentUnresolvedFile(&m.list, -1)
+			return m, nil
 		}
 	case tea.WindowSizeMsg:
 		width := msg.Width
@@ -154,5 +166,26 @@ func (m fileSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m fileSelectModel) View() string {
-	return m.list.View() + "\n" + "up/down: move, enter: select, q: quit"
+	return m.list.View() + "\n" + "up/down: move, n/p: unresolved, enter: select, q: quit"
+}
+
+func selectFirstUnresolvedFile(model *list.Model) {
+	for index, item := range model.Items() {
+		file, ok := item.(fileItem)
+		if ok && !file.resolved {
+			model.Select(index)
+			return
+		}
+	}
+}
+
+func selectAdjacentUnresolvedFile(model *list.Model, direction int) {
+	items := model.Items()
+	for index := model.Index() + direction; index >= 0 && index < len(items); index += direction {
+		file, ok := items[index].(fileItem)
+		if ok && !file.resolved {
+			model.Select(index)
+			return
+		}
+	}
 }

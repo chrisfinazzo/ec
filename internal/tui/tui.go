@@ -244,7 +244,7 @@ func Run(ctx context.Context, opts cli.Options) error {
 		theirsLines:      theirsLines,
 		conflictRanges:   ranges,
 		useFullDiff:      useFullDiff,
-		currentConflict:  0,
+		currentConflict:  firstUnresolvedConflict(doc, resolverState.manualResolved),
 		selectedSide:     selectedOurs,
 		mergedLabels:     resolverState.mergedLabels,
 		mergedLabelKnown: resolverState.mergedLabelKnown,
@@ -265,6 +265,20 @@ func Run(ctx context.Context, opts cli.Options) error {
 	}
 
 	return nil
+}
+
+func firstUnresolvedConflict(doc markers.Document, manualResolved map[int][]byte) int {
+	for index, ref := range doc.Conflicts {
+		if _, ok := manualResolved[index]; ok {
+			continue
+		}
+
+		seg, ok := doc.Segments[ref.SegmentIndex].(markers.ConflictSegment)
+		if ok && seg.Resolution == markers.ResolutionUnset {
+			return index
+		}
+	}
+	return 0
 }
 
 func (m model) Init() tea.Cmd {
